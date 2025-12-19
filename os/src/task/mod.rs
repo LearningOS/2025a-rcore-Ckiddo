@@ -54,6 +54,7 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            count: [0;5],
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -71,7 +72,38 @@ lazy_static! {
     };
 }
 
+// const SYSCALL_WRITE: usize = 64;
+// /// exit syscall
+// const SYSCALL_EXIT: usize = 93;
+// /// yield syscall
+// const SYSCALL_YIELD: usize = 124;
+// /// gettime syscall
+// const SYSCALL_GET_TIME: usize = 169;
+// /// trace syscall
+// const SYSCALL_TRACE: usize = 410;
+fn call_id_to_idx(call_id: usize) -> usize {
+    match call_id {
+        64 => 0,
+        93 => 1,
+        124 => 2,
+        169 => 3,
+        410 => 4,
+        _ => panic!(),
+    }
+}
 impl TaskManager {
+    fn count(&self, id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        let idx = call_id_to_idx(id);
+        inner.tasks[current_task].count[idx] += 1;
+    }
+    fn get(&self, id: usize) -> isize {
+        let inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        let idx = call_id_to_idx(id);
+        inner.tasks[current_task].count[idx] as isize
+    }
     /// Run the first task in task list.
     ///
     /// Generally, the first task in task list is an idle task (we call it zero process later).
@@ -137,6 +169,15 @@ impl TaskManager {
     }
 }
 
+/// count
+pub fn count(id: usize) {
+    TASK_MANAGER.count(id);
+}
+
+/// get count
+pub fn get_count(id: usize) -> isize {
+    TASK_MANAGER.get(id)
+}
 /// Run the first task in task list.
 pub fn run_first_task() {
     TASK_MANAGER.run_first_task();
