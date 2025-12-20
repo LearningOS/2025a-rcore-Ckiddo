@@ -202,3 +202,39 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
 }
+
+/// current tcp
+pub fn current_tcb<F, R>(f: F) -> R
+where
+    F: FnOnce(&TaskControlBlock) -> R,
+{
+    let tm = TASK_MANAGER.inner.exclusive_access();
+    let t_idx = tm.current_task;
+    let tcb = &tm.tasks[t_idx];
+    f(tcb)
+}
+
+/// current tcp mut
+pub fn current_tcb_mut<F, R>(mut f: F) -> R
+where
+    F: FnMut(&mut TaskControlBlock) -> R,
+{
+    let mut tm = TASK_MANAGER.inner.exclusive_access();
+    let t_idx = tm.current_task;
+    let tcb = &mut tm.tasks[t_idx];
+    f(tcb)
+}
+
+/// count
+pub fn get_count(id: usize) -> usize {
+    let tm = TASK_MANAGER.inner.exclusive_access();
+    let cur_task_idx = tm.current_task;
+    tm.tasks[cur_task_idx].syscall_count[id]
+}
+
+/// count_add
+pub fn count_add(id: usize) {
+    let mut tm = TASK_MANAGER.inner.exclusive_access();
+    let cur_task_idx = tm.current_task;
+    tm.tasks[cur_task_idx].syscall_count[id] += 1;
+}
