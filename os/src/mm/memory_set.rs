@@ -54,6 +54,18 @@ impl MemorySet {
     pub fn token(&self) -> usize {
         self.page_table.token()
     }
+    /// remove
+    pub fn remove_framed_area(&mut self, start_vpn: VirtPageNum, end_vpn: VirtPageNum) -> bool {
+        if let Some(index) = self.areas.iter().position(|area| {
+            area.vpn_range.get_start() == start_vpn && area.vpn_range.get_end() == end_vpn
+        }) {
+            let mut removed = self.areas.remove(index);
+            removed.unmap(&mut self.page_table);
+            true
+        } else {
+            false
+        }
+    }
     /// Assume that no conflicts.
     pub fn insert_framed_area(
         &mut self,
