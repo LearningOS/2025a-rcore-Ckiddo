@@ -5,12 +5,10 @@ use alloc::sync::Arc;
 
 use crate::{
     fs::{open_file, OpenFlags},
-    loader::get_app_data_by_name,
     mm::{
-        frame_remain_num, is_empty, translated_byte_buffer, translated_refmut, translated_str,
-        VPNRange, VirtAddr,
+        self, frame_remain_num, is_empty, translated_byte_buffer, translated_refmut,
+        translated_str, VPNRange, VirtAddr,
     },
-    mm::{translated_refmut, translated_str},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
         suspend_current_and_run_next,
@@ -156,7 +154,7 @@ pub fn sys_mmap(start: usize, len: usize, prot: usize) -> isize {
 
     let end_va = VirtAddr::from(start + len);
 
-    for vpn in VPNRange::new(start_va.floor(), end_va.ceil()) {
+    for vpn in mm::VPNRange::new(start_va.floor(), end_va.ceil()) {
         if !is_empty(current_user_token(), vpn.into()) {
             return -1;
         }
@@ -219,9 +217,10 @@ pub fn sys_spawn(path: *const u8) -> isize {
 
     let token = current_user_token();
     let path = translated_str(token, path);
-    if let Some(data) = get_app_data_by_name(path.as_str()) {
+    if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
+        let all_data = app_inode.read_all();
         let task = current_task().unwrap();
-        let new_task = task.spawn(data);
+        let new_task = task.spawn(all_data.as_slice());
         let new_pid = new_task.pid.0;
         add_task(new_task);
         new_pid as isize

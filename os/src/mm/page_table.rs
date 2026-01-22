@@ -156,6 +156,7 @@ impl PageTable {
     pub fn token(&self) -> usize {
         8usize << 60 | self.root_ppn.0
     }
+    /// is empty
     pub fn is_empty(&self, vpn: VirtPageNum) -> bool {
         self.find_pte(vpn)
             .map(|pte| !pte.is_valid())

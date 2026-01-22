@@ -14,7 +14,114 @@ pub struct Inode {
     block_device: Arc<dyn BlockDevice>,
 }
 
+fn file_count(inode_size: u32) -> usize {
+    let file_count = (inode_size as usize) / DIRENT_SZ;
+    file_count
+}
+
 impl Inode {
+    /// id
+    pub fn id(&self) -> u32 {
+        let fs = self.fs.lock();
+        fs.get_inode_id(self.block_id as u32, self.block_offset)
+    }
+    /// is dir
+    pub fn is_dir(&self) -> bool {
+        let _fs = self.fs.lock();
+        self.read_disk_inode(|disk_inode| disk_inode.is_dir())
+    }
+    /// is file
+    pub fn is_file(&self) -> bool {
+        let _fs = self.fs.lock();
+        self.read_disk_inode(|disk_inode| disk_inode.is_file())
+    }
+    /// link_num
+    pub fn link_num(&self, id: u32) -> u32 {
+        let _fs = self.fs.lock();
+        self.read_disk_inode(|rot_inode| {
+            assert!(rot_inode.is_dir());
+            self.list_inode_names(id, rot_inode).len() as u32
+        })
+    }
+    /// list_inode_names
+    fn list_inode_names(&self, id: u32, disk_inode: &DiskInode) -> Vec<String> {
+        let file_count = file_count(disk_inode.size);
+        (0..file_count)
+            .filter_map(|i| {
+                let mut buf = DirEntry::empty();
+                disk_inode.read_at(DIRENT_SZ * i, buf.as_bytes_mut(), &self.block_device);
+                if buf.inode_id() == id {
+                    return Some(String::from(buf.name()));
+                }
+                None
+            })
+            .collect()
+    }
+    /// unlink
+    pub fn unlink(&self, name: &str) -> bool {
+        let mut flag = false;
+        let mut cl = false;
+        let innode = self.find(name);
+        self.modify_disk_inode(|root_inode| {
+            assert!(root_inode.is_dir());
+            if let Some(innode_id) = self.find_inode_id(name, root_inode) {
+                if self.list_inode_names(innode_id, root_inode).len() == 1 {
+                    cl = true;
+                }
+            }
+
+            let file_count = file_count(root_inode.size);
+            let i = (0..file_count).find(|i| {
+                let mut dirent = DirEntry::empty();
+                root_inode.read_at(DIRENT_SZ * i, dirent.as_bytes_mut(), &self.block_device);
+                dirent.name() == name
+            });
+            if let Some(i) = i {
+                let mut dirent = DirEntry::empty();
+                root_inode.read_at(DIRENT_SZ * i, dirent.as_bytes_mut(), &self.block_device);
+
+                if dirent.name() == name {
+                    for j in i..file_count - 1 {
+                        root_inode.read_at(
+                            DIRENT_SZ * (j + 1),
+                            dirent.as_bytes_mut(),
+                            &self.block_device,
+                        );
+                        root_inode.write_at(DIRENT_SZ * j, dirent.as_bytes(), &self.block_device);
+                    }
+                    root_inode.size -= DIRENT_SZ as u32;
+                    flag = true;
+                }
+            }
+        });
+        if cl {
+            innode.unwrap().clear();
+        }
+        block_cache_sync_all();
+        flag
+    }
+    /// link
+    pub fn link(&self, old_name: &str, new_name: &str) -> bool {
+        let mut fs = self.fs.lock();
+        let mut flag = false;
+        self.modify_disk_inode(|root_inode| {
+            assert!(root_inode.is_dir());
+            if let Some(old_id) = self.find_inode_id(old_name, root_inode) {
+                let file_count = file_count(root_inode.size);
+                let new_size = (file_count + 1) * DIRENT_SZ;
+                self.increase_size(new_size as u32, root_inode, &mut fs);
+                let dirent = DirEntry::new(new_name, old_id);
+                root_inode.write_at(
+                    file_count * DIRENT_SZ,
+                    dirent.as_bytes(),
+                    &self.block_device,
+                );
+                flag = true;
+            }
+        });
+        block_cache_sync_all();
+        flag
+    }
     /// Create a vfs inode
     pub fn new(
         block_id: u32,
